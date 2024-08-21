@@ -33,20 +33,28 @@ curl -X POST http://localhost:8001/upstreams \
 
 ```
 curl -X POST http://localhost:8001/upstreams/example_upstream/targets \
-  --data target='httpbun.com:80'
+  --data target='httpbun.com:80' && \
 curl -X POST http://localhost:8001/upstreams/example_upstream/targets \
   --data target='httpbin.org:80'
 ```
 
-6. Create an `example_service` that points to the `example_upstream`:
+6. Add new service:
 
 ```
 curl -i -s -X POST http://localhost:8001/services \
   --data name=example_service \
-  --data url='http://httpbin.org'
+  --data url='http://httpbin.org' \
+  --data host='example_upstream'
+```
+7. Add `/mock` route to `example_service`:
+
+```
+curl -i -X POST http://localhost:8001/services/example_service/routes \
+  --data 'paths[]=/mock' \
+  --data name=example_route
 ```
 
-7. Validate that the upstream you configured is working by pinging http://localhost:8000/mock several times:
+8. Validate the loading balancing by pinging http://localhost:8000/mock/headers several times:
 
 ```
 curl -s http://localhost:8000/mock/headers | grep -i -A1 '"host"'
