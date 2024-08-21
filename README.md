@@ -67,8 +67,10 @@ docker logs -f CONTAINER_ID_HERE
 ```
 curl -X POST 'http://localhost:8000/api/chat' \
 --header 'Content-Type: application/json' \
---data '{ "messages": [ { "role": "system", "content": "You are a mathematician" }, { "role": "user", "content": "What is 1+1?"} ], "model": "llama3.1", "stream": false }'
+--data '{ "messages": [ { "role": "system", "content": "You are a mathematician" }, { "role": "user", "content": "Why is the sky blue"} ], "model": "moondream", "stream": false }'
 ```
+
+We use `moondream` model because it's the smallest model, and we were receiving OOM errors on this maintainer's local machine otherwise.
 
 ### Other Commands:
 
