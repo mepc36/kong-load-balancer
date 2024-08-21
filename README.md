@@ -1,63 +1,119 @@
-# Summary:
+# COMMANDS:
 
-This repo is a minimal example for a kong load balancer. It is the result of following the tutorial in the Kong docs [here](https://docs.konghq.com/gateway/latest/get-started/load-balancing/).
+## TEST OLLAMA DIRECTLY:
 
-## Starting Kong:
+curl http://localhost:11434/api/chat -d '{
+  "model": "llama3.1",
+  "messages": [
+    { "role": "user", "content": "why is the sky blue?" }
+  ],
+  "stream": false
+}'
 
-1. Clone the Docker repo:
+## CREATE & TEST SIMPLE SERVICE:
 
-```
-git clone https://github.com/Kong/docker-kong
-```
-
-2. Change to the compose directory:
-
-```
-cd docker-kong/compose/
-```
-
-3. Start the Gateway stack:
+1. Create service:
 
 ```
-KONG_DATABASE=postgres docker-compose --profile database up
+curl -i -s -X POST http://localhost:8001/services --data name=example_service --data url='http://httpbin.org'
 ```
 
-4. Use the Admin API to create an upstream named `example_upstream`:
+2. Create route:
 
 ```
-curl -X POST http://localhost:8001/upstreams \
-  --data name=example_upstream
+curl -i -X POST http://localhost:8001/services/example_service/routes --data 'paths[]=/mock' --data name=example_route
 ```
 
-5. Create two targets for `example_upstream`, one with an `httpbun` connection endpoint and one with an `httpbin` connection endpoint:
+3. Test:
+
+GET:
 
 ```
-curl -X POST http://localhost:8001/upstreams/example_upstream/targets \
-  --data target='httpbun.com:80' && \
-curl -X POST http://localhost:8001/upstreams/example_upstream/targets \
-  --data target='httpbin.org:80'
+curl -X GET http://localhost:8000/mock/anything
 ```
 
-6. Add new service:
+POST:
+
+```
+curl -X POST http://localhost:8000/mock/anything --header 'Content-Type: application/json' --data '{ "messages": []}'
+```
+
+## CREATE AN AI SERVICE NOT USING AI PROXY:
+
+1. Create `ai_service` service:
 
 ```
 curl -i -s -X POST http://localhost:8001/services \
-  --data name=example_service \
-  --data url='http://httpbin.org' \
-  --data host='example_upstream'
-```
-7. Add `/mock` route to `example_service`:
-
-```
-curl -i -X POST http://localhost:8001/services/example_service/routes \
-  --data 'paths[]=/mock' \
-  --data name=example_route
+  --data name=ai_service \
+  --data url='http://host.docker.internal:11434/api/chat'
 ```
 
-8. Validate the loading balancing by pinging http://localhost:8000/mock/headers several times:
+2. Create route:
 
 ```
-curl -s http://localhost:8000/mock/headers | grep -i -A1 '"host"'
+curl -i -X POST http://localhost:8001/services/ai_service/routes \
+  --data 'paths[]=/api/chat' \
+  --data name=ai_route
 ```
 
-The `host` value should change between `httpbin` and `httpbun`.
+3. Test:
+
+```
+curl --location 'http://localhost:8000/api/chat' \
+--header 'Content-Type: application/json' \
+--data '{ "messages": [ { "role": "system", "content": "You are a mathematician" }, { "role": "user", "content": "What is 1+1?"} ], "model": "llama3.1", "stream": false }'
+```
+
+## LOAD BALANCE LLMS USING AN UPSTREAM & 2 TARGETS:
+
+1. Run ollama on port 11434:
+
+```
+docker run --network compose_kong-net -d -v ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
+```
+
+2. Run a second ollama service on port 11435:
+
+```
+docker run --network compose_kong-net -d -v ollama:/root/.ollama -p 11435:11435 --name ollama_2 ollama/ollama
+
+```
+
+3. Start Kong inside a Docker container:
+
+```
+cd ./compose && KONG_DATABASE=postgres docker-compose --profile database up -d
+```
+
+4. Create an `ai_service_2` service with an `ai_upstream` host:
+
+```
+curl -i -s -X POST http://localhost:8001/services \
+  --data name=ai_service_2 \
+  --data host='ai_upstream'
+```
+
+5. Create two targets for `ai_upstream`:
+
+```
+curl -X POST http://localhost:8001/upstreams/example_upstream/targets \
+  --data target=host.docker.internal:11434' && \
+curl -X POST http://localhost:8001/upstreams/example_upstream/targets \
+  --data target=host.docker.internal:11435'
+```
+
+6. Add route:
+
+```
+curl -i -X POST http://localhost:8001/services/ai_service_2/routes \
+  --data 'paths[]=/api/chat' \
+  --data name=ai_load_balancing_route
+```
+
+7. Test ollama via Kong:
+
+```
+curl -X POST 'http://localhost:8000/api/chat' \
+--header 'Content-Type: application/json' \
+--data '{ "messages": [ { "role": "system", "content": "You are a mathematician" }, { "role": "user", "content": "What is 1+1?"} ], "model": "llama3.1", "stream": false }'
+```
